@@ -12,9 +12,7 @@ An index is an additional structure that is derived from the primary data. Many 
 
 Let’s say our data storage consists only of appending to a file, as in the preceding example. Then the simplest possible indexing strategy is this: keep an in-memory hash map where every key is mapped to a byte offset in the data file—the location at which the value can be found
 
-<img src="/Users/alchemy/codes/alchemy/DDIA-Notes/notes/images/image-20220102192010276.png" alt="image-20220102192010276" style="zoom: 33%;" />
-
-
+<img src="images/image-20220102192010276.png" alt="image-20220102192010276" style="zoom: 33%;" />
 
 
 
