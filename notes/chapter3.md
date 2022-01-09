@@ -48,7 +48,7 @@ However, the hash table index also has limitations:
 
 ### 1.2 SSTables and LSM-Trees
 
-In Figure 3-3, each log-structured storage segment is a sequence of key-value pairs. Now we can make a simple change to the format of our segment files: we require that the sequence of key-value pairs is *sorted by key*. We call this format **Sorted String Table(SSTable)**. We also require that each key only appears once within each merged segment file (the compaction process already ensures that). SSTables have several big advantages over log segments with hash indexes:
+In Figure 3-3, each log-structured storage segment is a sequence of key-value pairs. Now we can make a simple change to the format of our segment files: we require that the sequence of key-value pairs is *sorted by key*. We call this format **Sorted String Table (SSTable)**. We also require that each key only appears once within each merged segment file (the compaction process already ensures that). SSTables have several big advantages over log segments with hash indexes:
 
 - Merging segments is simple and efficient, even if the files are bigger than the available memory. The approach is like the one used in the *mergesort* algorithm.
 
@@ -73,6 +73,60 @@ Performance optimizations
 
 - the LSM-tree algorithm can be slow when looking up keys that do not exist in the database: you have to check the memtable, then the segments all the way back to the oldest before you can be sure that the key does not exist. In order to optimize this kind of access, storage engines often use additional **Bloom filters**.
 - There are also different strategies to determine the order and timing of how SSTables are compacted and merged. The most common options are **size-tiered** and **leveled** compaction. LevelDB and RocksDB use leveled compaction. In size-tiered compaction, newer and smaller SSTables are successively merged into older and larger SSTables. In leveled compaction, the key range is split up into smaller SSTables and older data is moved into separate “levels”, which allows the compaction to proceed more incrementally and use less disk space. [LevelDB之Leveled-Compaction](https://blog.csdn.net/songchuwang1868/article/details/103935065)
+
+
+
+## 2. Transaction Processing or Analytics?
+
+The term **transaction** refers to a group of reads and writes that form a logical unit.
+
+An application typically looks up a small number of records by some key, using an index. Records are inserted or updated based on the user's input. These applications are interactive, the access pattern became known as **online transaction processing (OLTP)**.
+
+However, an analytic query needs to scan over a huge number of records, only reading a few columns per record, and calculates aggregate statistics(such as count, sum, or average) rather than returning the raw data on the user. This pattern has been called **online analytic processing (OLAP)**.
+
+![image-20220109222058984](images/image-20220109222058984.png)
+
+### 2.1 Data Warehousing
+
+At first, the same databases were used for both transaction processing and analytic queries. In the late 1980s and early 1990s, there was a trend for companies to stop using their OLTP systems for analytics purposes, and to run the analytics on a separate database instead. This separate data‐ base was called a **data warehouse**.
+
+The data warehouse contains a read-only copy of the data in all the various OLTP systems in the company. Data is extracted from OLTP databases, transformed into an analysis-friendly schema, cleaned up, and then loaded into the data warehouse. This process of getting data into the warehouse is known as **Extract–Transform–Load (ETL)**.
+
+![image-20220109222543391](images/image-20220109222543391.png)
+
+A big advantage of using a separate data warehouse, rather than querying OLTP systems directly for analytics, is that the data warehouse can be optimized for analytic access patterns. Indexing algorithms work well for OLTP, but are not very good at answering analytic queries.
+
+### 2.2 Stars and Snowflakes: Schemas for Analytics
+
+Many data warehouses are used in a fairly formulaic style, known as a **star schema** (also known as dimensional modeling).
+
+![image-20220109223246631](images/image-20220109223246631.png)
+
+At the center of the schema is a so-called fact table (in this example, it is called fact_sales). Each row of the fact table represents an event that occurred at a particular time. Some of the columns in the fact table are attributes, such as the price at which the product was sold and the cost of buying it from the supplier. Other columns in the fact table are foreign key references to other tables, called **dimension tables**. As each row in the fact table represents an event, the dimensions represent the who, what, where, when, how, and why of the event.
+
+The name “star schema” comes from the fact that when the table relationships are visualized, the fact table is in the middle, surrounded by its dimension tables. A variation of this template is known as the snowflake schema, where dimensions are further broken down into subdimensions.
+
+In a typical data warehouse, tables are often very wide: fact tables often have over 100 columns, sometimes several hundred.
+
+
+
+## 3. Column-Oriented Storage
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
