@@ -102,7 +102,7 @@ Many data warehouses are used in a fairly formulaic style, known as a **star sch
 
 ![image-20220109223246631](images/image-20220109223246631.png)
 
-At the center of the schema is a so-called fact table (in this example, it is called fact_sales). Each row of the fact table represents an event that occurred at a particular time. Some of the columns in the fact table are attributes, such as the price at which the product was sold and the cost of buying it from the supplier. Other columns in the fact table are foreign key references to other tables, called **dimension tables**. As each row in the fact table represents an event, the dimensions represent the who, what, where, when, how, and why of the event.
+At the center of the schema is a so-called **fact table** (in this example, it is called fact_sales). Each row of the fact table represents an event that occurred at a particular time. Some of the columns in the fact table are attributes, such as the price at which the product was sold and the cost of buying it from the supplier. Other columns in the fact table are foreign key references to other tables, called **dimension tables**. As each row in the fact table represents an event, the dimensions represent the who, what, where, when, how, and why of the event.
 
 The name “star schema” comes from the fact that when the table relationships are visualized, the fact table is in the middle, surrounded by its dimension tables. A variation of this template is known as the snowflake schema, where dimensions are further broken down into subdimensions.
 
@@ -112,7 +112,43 @@ In a typical data warehouse, tables are often very wide: fact tables often have 
 
 ## 3. Column-Oriented Storage
 
+If you have trillions of rows in your fact tables, storing and querying them efficiently becomes a challenging problem. Although fact tables are often have over 100 colomns wide, a typical data warehouse query only accesses 4 or 5 of them at one time ("`SELECT *`" queries are rarely needed for analytics).
 
+In most OLTP databases, storage is laid out in *row-oriented* fashion: all the values from one row of a table are stored next to each other.
+
+The idea behind *column-oriented* storage is simple: don't store all the values from one row together, but store all the values from each column together instead. The column-oriented storage layout relies on each column file containing the rows in the same order. Thus, if you need to reassemble an entire row, you can take the 23rd entry from each of the individual column files and put them together to form the 23rd row of the table.
+
+<img src="images/image-20220120181956709.png" alt="image-20220120181956709" style="zoom:50%;" />
+
+### 3.1 Column Compression
+
+We can reduce the demands on disk throughput by compressing data in column-oriented storage.
+
+- Bitmap encoding.
+
+  <img src="images/image-20220120182746584.png" alt="image-20220120182746584" style="zoom:50%;" />
+
+  Often, the number of distinct values in a column is small compared to the number of rows (for example, a retailer may have billions of sales transactions, but only 100,000 distinct products). We can now take a column with $n$ distinct values and turn it into $n$ separate bitmaps: one bitmap for each distinct value, with one bit for each row. The bit is 1 if the row has that value, and 0 if not. But if $n$ is bigger, there will be a lot of zeros in most of the bitmaps (we say that they are sparse). In that case, the bitmaps can additionally be run-length encoded.
+
+  Bitmap indexes such as these are very well suited for the kinds of queries that are common in a data warehouse. For example:
+
+  `WHERE product_sk IN (30, 68, 69)`:
+
+  ​	Load the three bitmaps for `product_sk = 30`, `product_sk = 68`, and `product_sk = 69`, and calculate the bitwise *OR* of the three bitmaps, which can be done very efficiently.
+
+### 3.2 Aggregation（聚合）: Data Cubes and Materialized Views
+
+Data warehouse queries often involve an **aggregate** function, such as COUNT, SUM, AVG, MIN, or MAX in SQL. We can cache some of the counts or sums that queries use most often.
+
+One way of creating such a cache is a **materialized view**: an actual copy of the query results, written to disk. When the underlying data changes, a materialized view needs to be updated, because it is a denormalized copy of the data. 
+
+A common special case of a materialized view is known as a **data cube** or **OLAP cube**. It is a grid of aggregates grouped by different dimensions.
+
+<img src="images/image-20220120190351645.png" alt="image-20220120190351645" style="zoom:50%;" />
+
+The advantage of a materialized data cube is that certain queries become very fast because they have effectively been precomputed.
+
+The disadvantage is that a data cube doesn’t have the same flexibility as querying the raw data.
 
 
 
