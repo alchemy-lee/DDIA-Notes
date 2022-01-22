@@ -2,13 +2,13 @@
 
 In Chapter 2 we discussed data models and query languages—i.e., the format in which you (the application developer) give the database your data, and the mechanism by which you can ask for it again later. In this chapter we discuss the same from the **database’s point of view**: how we can **store the data** that we’re given, and how we can **find it again** when we’re asked for it.
 
-## 1. Data Structures That Power Your Database
+## 3.1 Data Structures That Power Your Database
 
 In order to efficiently find the value for a particular key in the database, we need a different data structure: an **index**. The general idea behind them is to keep some additional metadata on the side, which acts as a signpost（路标） and helps you to locate the data you want.
 
 An index is an additional structure that is derived from the primary data. Many databases allow you to add and remove indexes, and this doesn’t affect the contents of the database; it only affects the performance of queries. Maintaining additional structures incurs overhead, especially on writes. For writes, it’s hard to beat the performance of simply appending to a file, because that’s the simplest possible write operation. Any kind of index usually slows down writes, because the index also needs to be updated every time data is written. **This is an important trade-off in storage systems: well-chosen indexes speed up read queries, but every index slows down writes.**
 
-### 1.1 Hash Indexes
+### 3.1.1 Hash Indexes
 
 Let’s say our data storage consists only of appending to a file. Then the simplest possible indexing strategy is this: keep an in-memory hash map where every key is mapped to a byte offset in the data file—the location at which the value can be found. Whenever you append a new key-value pair to the file, you also update the hash map to reflect the offset of the data you just wrote.
 
@@ -46,7 +46,7 @@ However, the hash table index also has limitations:
   requires a lot of random access I/O, it is expensive to grow when it becomes full, and hash collisions require complex logic.
 - Range queries are not efficient. For example, you cannot easily scan over all keys between `kitty00000` and `kitty99999`—you’d have to look up each key individually in the hash maps.
 
-### 1.2 SSTables and LSM-Trees
+### 3.1.2 SSTables and LSM-Trees
 
 In Figure 3-3, each log-structured storage segment is a sequence of key-value pairs. Now we can make a simple change to the format of our segment files: we require that the sequence of key-value pairs is *sorted by key*. We call this format **Sorted String Table (SSTable)**. We also require that each key only appears once within each merged segment file (the compaction process already ensures that). SSTables have several big advantages over log segments with hash indexes:
 
@@ -76,7 +76,7 @@ Performance optimizations
 
 
 
-## 2. Transaction Processing or Analytics?
+## 3.2 Transaction Processing or Analytics?
 
 The term **transaction** refers to a group of reads and writes that form a logical unit.
 
@@ -86,7 +86,7 @@ However, an analytic query needs to scan over a huge number of records, only rea
 
 ![image-20220109222058984](images/image-20220109222058984.png)
 
-### 2.1 Data Warehousing
+### 3.2.1 Data Warehousing
 
 At first, the same databases were used for both transaction processing and analytic queries. In the late 1980s and early 1990s, there was a trend for companies to stop using their OLTP systems for analytics purposes, and to run the analytics on a separate database instead. This separate data‐ base was called a **data warehouse**.
 
@@ -96,7 +96,7 @@ The data warehouse contains a read-only copy of the data in all the various OLTP
 
 A big advantage of using a separate data warehouse, rather than querying OLTP systems directly for analytics, is that the data warehouse can be optimized for analytic access patterns. Indexing algorithms work well for OLTP, but are not very good at answering analytic queries.
 
-### 2.2 Stars and Snowflakes: Schemas for Analytics
+### 3.2.2 Stars and Snowflakes: Schemas for Analytics
 
 Many data warehouses are used in a fairly formulaic style, known as a **star schema** (also known as dimensional modeling).
 
@@ -110,7 +110,7 @@ In a typical data warehouse, tables are often very wide: fact tables often have 
 
 
 
-## 3. Column-Oriented Storage
+## 3.3 Column-Oriented Storage
 
 If you have trillions of rows in your fact tables, storing and querying them efficiently becomes a challenging problem. Although fact tables are often have over 100 colomns wide, a typical data warehouse query only accesses 4 or 5 of them at one time ("`SELECT *`" queries are rarely needed for analytics).
 
@@ -120,7 +120,7 @@ The idea behind *column-oriented* storage is simple: don't store all the values 
 
 <img src="images/image-20220120181956709.png" alt="image-20220120181956709" style="zoom:50%;" />
 
-### 3.1 Column Compression
+### 3.3.1 Column Compression
 
 We can reduce the demands on disk throughput by compressing data in column-oriented storage.
 
@@ -136,7 +136,7 @@ We can reduce the demands on disk throughput by compressing data in column-orien
 
   ​	Load the three bitmaps for `product_sk = 30`, `product_sk = 68`, and `product_sk = 69`, and calculate the bitwise *OR* of the three bitmaps, which can be done very efficiently.
 
-### 3.2 Aggregation（聚合）: Data Cubes and Materialized Views
+### 3.3.2 Aggregation（聚合）: Data Cubes and Materialized Views
 
 Data warehouse queries often involve an **aggregate** function, such as COUNT, SUM, AVG, MIN, or MAX in SQL. We can cache some of the counts or sums that queries use most often.
 
