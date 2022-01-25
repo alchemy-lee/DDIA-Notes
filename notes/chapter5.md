@@ -167,6 +167,100 @@ Multi-leader configuration: allow more than one node to accept writes, each node
 
 ### 5.3.1 Use Cases for Multi-Leader Replication
 
+It rarely makes sense to use a multi-leader setup within a single datacenter, because the benefits rarely outweigh the added complexity. However, there are some situations in which this configuration is reasonable.
+
+#### Multi-datacenter operation
+
+Imagine you have a database with replicas in several different datacenter. In a multi-leader configuration, you can hava a leader in *each* datacenter. Within each datacenter, regular leader-follower replication is used; between datacenter, each datacenter's leader replicates its changes to the leaders in other datacenters.
+
+<img src="images/image-20220125191659132.png" alt="image-20220125191659132" style="zoom:50%;" />
+
+Let’s compare how the single-leader and multi-leader configurations fare in a multi-datacenter deployment:
+
+- *Performance*: In a single-leader configuration, every write must go over the internet to the datacenter with the leader. This can add significant latency to writes. In a multi-leader configuration, every write can be processed in the local datacenter and is replicated asynchronously to the other datacenters. Thus, the inter-datacenter network delay is hidden from users.
+- *Tolerance of datacenter outages*: In a single-leader configuration, if the datacenter with the leader fails, failover can promote a follower in another datacenter to be leader. In a multi-leader con‐ figuration, each datacenter can continue operating independently of the others, and replication catches up when the failed datacenter comes back online.
+- *Tolerance of network problems*: Traffic between datacenters usually goes over the public internet. A single-leader configuration is very sensitive to problems in this inter-datacenter link, because writes are made synchronously over this link. A multi-leader configuration with asynchronous replication can usually tolerate network problems better.
+
+Although multi-leader replication has advantages, it also has a big downside: the same data may be concurrently modified in two different datacenters, and those write conflicts must be resolved.
+
+#### Clients with offline operation
+
+Another situation in which multi-leader replication is appropriate is if you have an application that needs to continue to work while it is disconnected from the internet. （滴答清单，日历等应用）
+
+If you make any changes while you are offline, they need to be synced with a server and your other devices when the device is next online. In this case, every device has a local database that acts as a leader (it accepts write requests), and there is an asynchronous multi-leader replication process (sync) between the replicas of your calendar on all of your devices.
+
+#### Collaborative editing
+
+*Real-time collaborative editing* applications allow several people to edit a document simultaneously. When one user edits a document, the changes are instantly applied to their local replica (the state of the document in their web browser or client application) and asynchronously replicated to the server and any other users who are editing the same document.
+
+### 5.3.2 Handling Write Conflicts
+
+The biggest problem with multi-leader replication is that write conflicts can occur, which means that conflict resolution is required.
+
+<img src="images/image-20220125192838510.png" alt="image-20220125192838510" style="zoom:50%;" />
+
+In a multi-leader setup, both writes are successful, and the conflict is only detected asynchronously at some later point in time. At that time, it may be too late to ask the user to resolve the conflict.
+
+#### Conflict avoidance
+
+The simplest strategy for dealing with conflicts is to avoid them: if the application can ensure that all writes for a particular record go through the same leader, then con‐ flicts cannot occur.
+
+However, sometimes you might want to change the designated leader for a record. In this situation, conflict avoidance breaks down, and you have to deal with the possibility of concurrent writes on different leaders.
+
+#### Converging（趋于一致） toward a consistent state
+
+A single-leader database applies writes in a sequential order: if there are several updates to the same field, the last write determines the final value of the field.
+
+In a multi-leader configuration, there is no defined ordering of writes, so it’s not clear what the final value should be. Thus, the database must resolve the conflict in a convergent way, which means that all replicas must arrive at the same final value when all changes have been replicated.
+
+There are various ways of achieving convergent conflict resolution:
+
+- Give each write a unique ID, pick the write with the highest ID as the *winner*, and throw away the other writes. If a timestamp is used, this technique is known as *last write wins* (LWW). Although this approach is popular, it is dangerously prone to data loss.
+- Give each replica a unique ID, and let writes that originated at a higher-numbered replica always take precedence over writes that originated at a lower-numbered replica. This approach also implies data loss.
+- Somehow merge the values together—e.g., order them alphabetically and then concatenate them
+- Record the conflict in an explicit data structure that preserves all information, and write application code that resolves the conflict at some later time (perhaps by prompting the user).
+
+#### Custom conflict resolution logic
+
+As the most appropriate way of resolving a conflict may depend on the application, most multi-leader replication tools let you write conflict resolution logic using application code. That code may be executed on write or on read:
+
+- *On write*: As soon as the database system detects a conflict in the log of replicated changes, it calls the conflict handler.
+- *On read*: When a conflict is detected, all the conflicting writes are stored. The next time the data is read, these multiple versions of the data are returned to the application. The application may prompt the user or automatically resolve the conflict.
+
+*Operational transformation* is the conflict resolution algorithm behind collaborative editing applications such as [Etherpad](https://github.com/ether/etherpad-lite/blob/e2ce9dc/doc/easysync/easysync-full-description.pdf) and [Google Docs](http://googledrive.blogspot.com/2010/09/whats-different-about-new-google-docs.html).
+
+### 5.3.3 Multi-Leader Replication Topologies
+
+A *replication topology* describes the communication paths along which writes are propagated from one node to another. With more than two leaders, various different topologies are possible.
+
+<img src="images/image-20220125194535960.png" alt="image-20220125194535960" style="zoom:50%;" />
+
+The most general topology is *all-to-all*, in which every leader sends its writes to every other leader. However, MySQL by default supports only a *circular topology*. 
+
+In circular and star topologies, a write may need to pass through several nodes before it reaches all replicas. To prevent infinite replication loops, each node is given a unique identifier, and in the replication log, each write is tagged with the identifiers of all the nodes it has passed through. When a node receives a data change that is tagged with its own identifier, that data change is ignored, because the node knows that it has already been processed.
+
+A problem with circular and star topologies is that if just one node fails, it can inter‐ rupt the flow of replication messages between other nodes. The topology could be reconfigured manually.
+
+On the other hand, all-to-all topologies can have issues too. In particular, some net‐ work links may be faster than others (e.g., due to network congestion), with the result that some replication messages may “overtake” others.
+
+<img src="images/image-20220125194922072.png" alt="image-20220125194922072" style="zoom:50%;" />
+
+This is a problem of causality: the update depends on the prior insert, so we need to make sure that all nodes process the insert first. Simply attaching a timestamp to every write is not sifficient, because clocks cannot be trusted to be sufficiently in sync to correctly order these events at leader 2.
+
+To order these events correctly, a technique called *version vectors* can be used. However, conflict detection techniques are poorly implemented in many multi-leader replication systems.
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
