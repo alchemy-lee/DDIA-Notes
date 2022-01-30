@@ -323,19 +323,68 @@ However, this means that even when $w + r > n$, you cannot be sure to read the l
 
 Sloppy quorums are optional in all common Dynamo implementations. In Riak they are enabled by default, and in Cassandra and Voldemort they are disabled by default. 
 
+#### Multi-datacenter operation
 
+Leaderless replication is also suitble for multi-datacenter operation.
 
+Cassandra and Voldemort implement their multi-datacenter support within the normal leaderless model: the number of replicas $n$ includes nodes in all datacenters, and in the configuration you can specify how many of the $n$ replicas you want to have in each datacenter. Each write from a client is sent to all replicas, regardless of datacenter, but the client usually only waits for acknowledgment from a quorum of nodes within its local datacenter so that it is unaffected by delays and interruptions on the cross-datacenter link.
 
+### 5.4.4 Detecting Concurrent Writes
 
+Dynamo-style databases allow several clients to concurrently write to the same key, which means that conflicts will occur even if strict quorums are used. The problem is that events may arrive in a different order at different nodes, due to variable network delays and partial failures.
 
+<img src="images/image-20220130202428123.png" alt="image-20220130202428123" style="zoom:50%;" />
 
+If each node simply overwrote the value for a key whenever it received a write request from a client, the nodes would become permanently inconsistent, as shown by the final *get* request in Figure 5-12.
 
+In order to become eventually consistent, the replicas should converge toward the same value. How do they do that?
 
+#### Last write wins (discarding concurrent writes)
 
+Each replica need only store the most “recent” value and allow “older” values to be overwritten and discarded. Then, as long as we have some way of unambiguously determining which write is more “recent,” and every write is eventually copied to every replica, the replicas will eventually converge to the same value.
 
+In the example of Figure 5-12, neither client knew about the other one when it sent its write requests to the database nodes, so it’s not clear which one happened first. In fact, it doesn’t really make sense to say that either happened “first”: we say the writes are concurrent, so their order is undefined.
 
+Even though the writes don’t have a natural ordering, we can force an arbitrary order on them. For example, we can attach a timestamp to each write, pick the biggest timestamp as the most “recent,” and discard any writes with an earlier timestamp. This conflict resolution algorithm, called *last write wins* (LWW), is the only supported conflict resolution method in Cassandra, and an optional feature in Riak.
 
+LWW achieves the goal of eventual convergence, but at the cost of durability: if there are several concurrent writes to the same key, only one of the writes will survive and the others will be silently discarded. The only safe way of using a database with LWW is to ensure that a key is only writ‐ ten once and thereafter treated as immutable.
 
+#### The "happens-before" relationship and concurrency
 
+How do we decide whether two operations are concurrent or not?
 
+An operation A *happens before* another operation B if B knows about A, or depends A, or builds upon A in some way. We can simply say that two operations are *concurrent* if neither happens before the other (i.e., neither knows about the other).
+
+If one operation happened before another, the later operation should overwrite the earlier operation, but if the operations are concurrent, we have a conflict that needs to be resolved.
+
+#### Capturing the happens-before relationship
+
+Figure 5-13 shows two clients concurrently adding items to the same shopping cart.
+
+<img src="images/image-20220130203329008.png" alt="image-20220130203329008" style="zoom:50%;" />
+
+The server can determine whether two operations are concurrent by looking at the version numbers—it does not need to interpret the value itself.
+
+- The server maintains a version number for every key, increments the version number every time that key is written, and stores the new version number along with the value written.
+- When a client reads a key, the server returns all values that have not been overwritten, as well as the latest version number. A client must read a key before writing.
+- When a client writes a key, it must include the version number from the prior read, and it must merge together all values that it received in the prior read.
+- When the server receives a write with a particular version number, it can overwrite all values with that version number or below (since it knows that they have been merged into the new value), but it must keep all values with a higher ver‐ sion number (because those values are concurrent with the incoming write).
+
+When a write includes the version number from a prior read, that tells us which pre‐ vious state the write is based on.
+
+#### Merging concurrently written values
+
+This algorithm ensures that no data is silently dropped, but it unfortunately requires that the clients do some extra work: if several operations happen concurrently, clients have to clean up afterward by merging the concurrently written values. Riak calls these concurrent values *siblings*. How to merge sibling values?
+
+A simple approach is to just pick one of the values based on a version number or timestamp (last write wins), but that implies losing data.
+
+With the example of a shopping cart, a reasonable approach to merging siblings is to just take the union. However, if you want to allow people to also remove things from their carts, and not just add things, then taking the union of siblings may not yield the right result. To prevent this problem, an item cannot simply be deleted from the database when it is removed; instead, the system must leave a marker with an appropriate version number to indicate that the item has been removed when merging siblings.
+
+#### Version vectors
+
+The example in Figure 5-13 used only a single replica. How does the algorithm change when there are multiple replicas, but no leader?
+
+Figure 5-13 uses a single version number, we need to use a version number *per replica* as well as per key. Each replica increments its own version number when processing a write, and also keeps track of the version numbers it has seen from each of the other replicas. This information indicates which values to overwrite and which values to keep as siblings.
+
+The collection of version numbers from all the replicas is called a *version vector*. Version vectors are sent from the database replicas to clients when values are read, and need to be sent back to the database with a value is subsequently written. The version vector allows the database to distinguish between overwrites and concurrent writes.
 
