@@ -146,35 +146,29 @@ When a new node joins the cluster, it randomly chooses a fixed number of existin
 
 Picking partition boundaries randomly requires that hash-based partitioning is used (so the boundaries can be picked from the range of numbers produced by the hash function).
 
+### 6.4.2 Operations: Automatic or Manual Rebalancing
+
+There is a gradient（梯度） between fully automatic rebalancing and fully manual. For example, Couchbase, Riak, and Voldemort generate a suggested partition assignment automatically, but require an administrator to commit it before it takes effect.
+
+Fully automated rebalancing can be convenient, because there is less operational work to do for normal maintenance. However, it can be unpredictable. If it is not done carefully, this process can overload the network or the nodes and harm the performance of other requests while the rebalancing is in progress.
+
 
 
 ## 6.5 Request Routing
 
+When a client wants to make a request, how does it know which node to connect to? As partitions are rebalanced, the assignment of partitions to nodes changes.
 
+On a high level, there are a few different approaches to this problem (illustrated in Figure 6-7):
 
+- Allow clients to contact any node (e.g., via a round-robin load balancer). If that node coincidentally owns the partition to which the request applies, it can handle the request directly; otherwise, it forwards the request to the appropriate node, receives the reply, and passes the reply along to the client.
+- Send all requests from clients to a routing tier（层） first, which determines the node that should handle each request and forwards it accordingly. This routing tier does not itself handle any requests; it only acts as a partition-aware load balancer.
+- Require that clients be aware of the partitioning and the assignment of partitions to nodes. In this case, a client can connect directly to the appropriate node, without any intermediary.
 
+<img src="images/image-20220211144826630.png" alt="image-20220211144826630" style="zoom:50%;" />
 
+In all cases, the key problem is: how does the component making the routing decision (which may be one of the nodes, or the routing tier, or the client) learn about changes in the assignment of partitions to nodes? This is a challenging problem, because it is important that all participants agree—otherwise requests would be sent to the wrong nodes and not handled correctly.
 
+Many distributed data systems rely on a separate coordination service such as ZooKeeper to keep track of this cluster metadata, as illustrated in Figure 6-8. Whenever a partition changes ownership, or a node is added or removed, ZooKeeper notifies the routing tier so that it can keep its routing information up to date.
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+<img src="images/image-20220211144958429.png" alt="image-20220211144958429" style="zoom:50%;" />
 
